@@ -7,27 +7,29 @@ A special designed **[Fast AutoAugment][]** is implemented to effectively maximi
 
 ## Results
 ### Public
-#### P1.XLARGE
-* experiment environment: [BrainCloud][] P1.XLARGE Type (P40 1GPU, 6CPU, 61GB)
-
-|  public | Munster |  Chucky |   Pedro |   Decal |  Hammer |
-|:-------:|--------:|--------:|--------:|--------:|--------:|
-| ALC     |  0.9440 |  0.7835 |  0.7366 |  0.8353 |  0.8286 |
-| AUC     |  0.9977 |  0.9353 |  0.9214 |  0.9347 |  0.9142 |
-| curves  | ![](./assets/public_final_result_p1_munster.png) | ![](./assets/public_final_result_p1_Chuckey.png) | ![](./assets/public_final_result_p1_pedro.png) | ![](./assets/public_final_result_p1_Decal.png) | ![](./assets/public_final_result_p1_Hammer.png) |
-
 
 #### V1.XLARGE
 * experiment environment: [BrainCloud][] V1.XLARGE Type (V100 1GPU, 14CPU, 122GB)
 
-|  public | Munster |  Chucky |   Pedro |   Decal |  Hammer |
+| metrics | Munster |  Chucky |   Pedro |   Decal |  Hammer |
 |:-------:|--------:|--------:|--------:|--------:|--------:|
 | ALC     |  0.9818 |  0.8633 |  0.8300 |  0.8935 |  0.8764 |
 | AUC     |  0.9976 |  0.9292 |  0.9147 |  0.9247 |  0.9106 |
 | curves  | ![](./assets/public_final_result_v1_munster.png) | ![](./assets/public_final_result_v1_Chuckey.png) | ![](./assets/public_final_result_v1_pedro.png) | ![](./assets/public_final_result_v1_Decal.png) | ![](./assets/public_final_result_v1_Hammer.png) |
 
+#### P1.XLARGE
+* experiment environment: [BrainCloud][] P1.XLARGE Type (P40 1GPU, 6CPU, 61GB)
+
+| metrics | Munster |  Chucky |   Pedro |   Decal |  Hammer |
+|:-------:|--------:|--------:|--------:|--------:|--------:|
+| ALC     |  0.9440 |  0.7835 |  0.7366 |  0.8353 |  0.8286 |
+| AUC     |  0.9977 |  0.9353 |  0.9214 |  0.9347 |  0.9142 |
+| curves  | ![](./assets/public_final_result_p1_munster.png) | ![](./assets/public_final_result_p1_Chuckey.png) | ![](./assets/public_final_result_p1_pedro.png) | ![](./assets/public_final_result_p1_Decal.png) | ![](./assets/public_final_result_p1_Hammer.png) |
+
 ### Private
-| private | beatriz | Caucase | Hippoc. |  Saturn | ukulele |
+* experiment environment: [CodaLab](https://autodl.lri.fr/)
+
+| metrics | beatriz | Caucase | Hippoc. |  Saturn | ukulele |
 |:-------:|--------:|--------:|--------:|--------:|--------:|
 | ALC     |  0.6756 |  0.7359 |  0.7744 |  0.8309 |  0.9075 |
 | AUC     |  0.8014 |  0.9411 |  0.9534 |  0.9884 |  0.9985 |
