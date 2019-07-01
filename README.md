@@ -14,7 +14,7 @@ A special designed **[Fast AutoAugment][]** is implemented to effectively maximi
 | metrics | Munster |  Chucky |   Pedro |   Decal |  Hammer |
 |:-------:|--------:|--------:|--------:|--------:|--------:|
 | ALC     |  0.9818 |  0.8633 |  0.8300 |  0.8935 |  0.8764 |
-| 2*AUC-1 |  0.9976 |  0.9292 |  0.9147 |  0.9247 |  0.9106 |
+| <sub>2*AUC-1</sub> |  0.9976 |  0.9292 |  0.9147 |  0.9247 |  0.9106 |
 | curves  | ![](./assets/public_final_result_v1_munster.png) | ![](./assets/public_final_result_v1_Chuckey.png) | ![](./assets/public_final_result_v1_pedro.png) | ![](./assets/public_final_result_v1_Decal.png) | ![](./assets/public_final_result_v1_Hammer.png) |
 
 #### P1.XLARGE
@@ -23,7 +23,7 @@ A special designed **[Fast AutoAugment][]** is implemented to effectively maximi
 | metrics | Munster |  Chucky |   Pedro |   Decal |  Hammer |
 |:-------:|--------:|--------:|--------:|--------:|--------:|
 | ALC     |  0.9440 |  0.7835 |  0.7366 |  0.8353 |  0.8286 |
-| 2*AUC-1 |  0.9977 |  0.9353 |  0.9214 |  0.9347 |  0.9142 |
+| <sub>2*AUC-1</sub> |  0.9977 |  0.9353 |  0.9214 |  0.9347 |  0.9142 |
 | curves  | ![](./assets/public_final_result_p1_munster.png) | ![](./assets/public_final_result_p1_Chuckey.png) | ![](./assets/public_final_result_p1_pedro.png) | ![](./assets/public_final_result_p1_Decal.png) | ![](./assets/public_final_result_p1_Hammer.png) |
 
 ### Private
@@ -32,7 +32,7 @@ A special designed **[Fast AutoAugment][]** is implemented to effectively maximi
 | metrics | beatriz | Caucase | Hippoc. |  Saturn | ukulele |
 |:-------:|--------:|--------:|--------:|--------:|--------:|
 | ALC     |  0.6756 |  0.7359 |  0.7744 |  0.8309 |  0.9075 |
-| 2*AUC-1 |  0.8014 |  0.9411 |  0.9534 |  0.9884 |  0.9985 |
+| <sub>2*AUC-1</sub> |  0.8014 |  0.9411 |  0.9534 |  0.9884 |  0.9985 |
 | curves  | ![](./assets/private_final_result_beatriz.png) | ![](./assets/private_final_result_Caucase.png) | ![](./assets/private_final_result_Hippocrate.png) | ![](./assets/private_final_result_Saturn.png) | ![](./assets/private_final_result_ukulele.png) |
 
 
