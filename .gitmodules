@@ -1,0 +1,12 @@
+[submodule "modules/pretrained-models.pytorch"]
+	path = modules/pretrained-models.pytorch
+	url = https://github.com/Cadene/pretrained-models.pytorch
+[submodule "modules/tqdm"]
+	path = modules/tqdm
+	url = https://github.com/tqdm/tqdm
+[submodule "modules/fast-autoaugment"]
+	path = modules/fast-autoaugment
+	url = https://github.com/kakaobrain/fast-autoaugment.git
+[submodule "modules/autodl"]
+	path = modules/autodl
+	url = https://github.com/zhengying-liu/autodl_starting_kit_stable.git
