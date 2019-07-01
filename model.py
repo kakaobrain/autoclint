@@ -1,516 +1,371 @@
-# Copyright 2016 Google Inc. All Rights Reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#      http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS-IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-# Modified by: Zhengying Liu, Isabelle Guyon
-
-"""An example of code submission for the AutoDL challenge.
-
-It implements 3 compulsory methods ('__init__', 'train' and 'test') and
-an attribute 'done_training' for indicating if the model will not proceed more
-training due to convergence or limited time budget.
-
-To create a valid submission, zip model.py together with other necessary files
-such as Python modules/packages, pre-trained weights. The final zip file should
-not exceed 300MB.
-"""
-
-from sklearn.linear_model import LinearRegression
-import logging
-import numpy as np
+# -*- coding: utf-8 -*-
+from __future__ import absolute_import
 import os
-import sys
+import threading
+
 import tensorflow as tf
-import time
-
-np.random.seed(42)
-tf.logging.set_verbosity(tf.logging.ERROR)
-
-class Model(object):
-  """Fully connected neural network with no hidden layer."""
-
-  def __init__(self, metadata):
-    """
-    Args:
-      metadata: an AutoDLMetadata object. Its definition can be found in
-          AutoDL_ingestion_program/dataset.py
-    """
-    self.done_training = False
-
-    self.metadata = metadata
-    self.output_dim = self.metadata.get_output_size()
-
-    # Set batch size (for both training and testing)
-    self.batch_size = 30
-
-    # Get model function from class method below
-    model_fn = self.model_fn
-    # Change to True if you want to show device info at each operation
-    log_device_placement = False
-    session_config = tf.ConfigProto(log_device_placement=log_device_placement)
-    # Classifier using model_fn (see below)
-    self.classifier = tf.estimator.Estimator(
-      model_fn=model_fn,
-      config=tf.estimator.RunConfig(session_config=session_config))
-
-    # Attributes for preprocessing
-    self.default_image_size = (112,112)
-    self.default_num_frames = 10
-    self.default_shuffle_buffer = 100
-
-    # Attributes for managing time budget
-    # Cumulated number of training steps
-    self.birthday = time.time()
-    self.train_begin_times = []
-    self.test_begin_times = []
-    self.li_steps_to_train = []
-    self.li_cycle_length = []
-    self.li_estimated_time = []
-    self.time_estimator = LinearRegression()
-    # Critical number for early stopping
-    # Depends on number of classes (output_dim)
-    # see the function self.choose_to_stop_early() below for more details
-    self.num_epochs_we_want_to_train = 1
-
-  def train(self, dataset, remaining_time_budget=None):
-    """Train this algorithm on the tensorflow |dataset|.
-
-    This method will be called REPEATEDLY during the whole training/predicting
-    process. So your `train` method should be able to handle repeated calls and
-    hopefully improve your model performance after each call.
-
-    ****************************************************************************
-    ****************************************************************************
-    IMPORTANT: the loop of calling `train` and `test` will only run if
-        self.done_training = False
-      (the corresponding code can be found in ingestion.py, search
-      'M.done_training')
-      Otherwise, the loop will go on until the time budget is used up. Please
-      pay attention to set self.done_training = True when you think the model is
-      converged or when there is not enough time for next round of training.
-    ****************************************************************************
-    ****************************************************************************
-
-    Args:
-      dataset: a `tf.data.Dataset` object. Each of its examples is of the form
-            (example, labels)
-          where `example` is a dense 4-D Tensor of shape
-            (sequence_size, row_count, col_count, num_channels)
-          and `labels` is a 1-D Tensor of shape
-            (output_dim,).
-          Here `output_dim` represents number of classes of this
-          multilabel classification task.
-
-          IMPORTANT: some of the dimensions of `example` might be `None`,
-          which means the shape on this dimension might be variable. In this
-          case, some preprocessing technique should be applied in order to
-          feed the training of a neural network. For example, if an image
-          dataset has `example` of shape
-            (1, None, None, 3)
-          then the images in this datasets may have different sizes. On could
-          apply resizing, cropping or padding in order to have a fixed size
-          input tensor.
-
-      remaining_time_budget: time remaining to execute train(). The method
-          should keep track of its execution time to avoid exceeding its time
-          budget. If remaining_time_budget is None, no time budget is imposed.
-    """
-    if self.done_training:
-      return
-
-    # Count examples on training set
-    if not hasattr(self, 'num_examples_train'):
-      logger.info("Counting number of examples on train set.")
-      iterator = dataset.make_one_shot_iterator()
-      example, labels = iterator.get_next()
-      sample_count = 0
-      with tf.Session(config=tf.ConfigProto(log_device_placement=False)) as sess:
-        while True:
-          try:
-            sess.run(labels)
-            sample_count += 1
-          except tf.errors.OutOfRangeError:
-            break
-      self.num_examples_train = sample_count
-      logger.info("Finished counting. There are {} examples for training set."\
-                  .format(sample_count))
-
-    self.train_begin_times.append(time.time())
-    if len(self.train_begin_times) >= 2:
-      cycle_length = self.train_begin_times[-1] - self.train_begin_times[-2]
-      self.li_cycle_length.append(cycle_length)
-
-    # Get number of steps to train according to some strategy
-    steps_to_train = self.get_steps_to_train(remaining_time_budget)
-
-    if steps_to_train <= 0:
-      logger.info("Not enough time remaining for training + test. " +
-                "Skipping training...")
-      self.done_training = True
-    elif self.choose_to_stop_early():
-      logger.info("The model chooses to stop further training because " +
-                  "The preset maximum number of epochs for training is " +
-                  "obtained: self.num_epochs_we_want_to_train = " +
-                  str(self.num_epochs_we_want_to_train))
-      self.done_training = True
-    else:
-      msg_est = ""
-      if len(self.li_estimated_time) > 0:
-        estimated_duration = self.li_estimated_time[-1]
-        estimated_end_time = time.ctime(int(time.time() + estimated_duration))
-        msg_est = "estimated time for training + test: " +\
-                  "{:.2f} sec, ".format(estimated_duration)
-        msg_est += "and should finish around {}.".format(estimated_end_time)
-      logger.info("Begin training for another {} steps...{}"\
-                .format(steps_to_train, msg_est))
-
-      # Prepare input function for training
-      train_input_fn = lambda: self.input_function(dataset, is_training=True)
-
-      # Start training
-      train_start = time.time()
-      self.classifier.train(input_fn=train_input_fn, steps=steps_to_train)
-      train_end = time.time()
-
-      # Update for time budget managing
-      train_duration = train_end - train_start
-      self.li_steps_to_train.append(steps_to_train)
-      logger.info("{} steps trained. {:.2f} sec used. ".format(steps_to_train, train_duration) +\
-            "Now total steps trained: {}. ".format(sum(self.li_steps_to_train)) +\
-            "Total time used for training + test: {:.2f} sec. ".format(sum(self.li_cycle_length)))
-
-  def test(self, dataset, remaining_time_budget=None):
-    """Test this algorithm on the tensorflow |dataset|.
-
-    Args:
-      Same as that of `train` method, except that the `labels` will be empty.
-    Returns:
-      predictions: A `numpy.ndarray` matrix of shape (sample_count, output_dim).
-          here `sample_count` is the number of examples in this dataset as test
-          set and `output_dim` is the number of labels to be predicted. The
-          values should be binary or in the interval [0,1].
-    """
-    # Count examples on test set
-    if not hasattr(self, 'num_examples_test'):
-      logger.info("Counting number of examples on test set.")
-      iterator = dataset.make_one_shot_iterator()
-      example, labels = iterator.get_next()
-      sample_count = 0
-      with tf.Session(config=tf.ConfigProto(log_device_placement=False)) as sess:
-        while True:
-          try:
-            sess.run(labels)
-            sample_count += 1
-          except tf.errors.OutOfRangeError:
-            break
-      self.num_examples_test = sample_count
-      logger.info("Finished counting. There are {} examples for test set."\
-                  .format(sample_count))
-
-    test_begin = time.time()
-    self.test_begin_times.append(test_begin)
-    logger.info("Begin testing...")
-
-    # Prepare input function for testing
-    test_input_fn = lambda: self.input_function(dataset, is_training=False)
-
-    # Start testing (i.e. making prediction on test set)
-    test_results = self.classifier.predict(input_fn=test_input_fn)
-
-    predictions = [x['probabilities'] for x in test_results]
-    predictions = np.array(predictions)
-    test_end = time.time()
-    # Update some variables for time management
-    test_duration = test_end - test_begin
-    logger.info("[+] Successfully made one prediction. {:.2f} sec used. "\
-              .format(test_duration) +\
-              "Duration used for test: {:2f}".format(test_duration))
-    return predictions
-
-  ##############################################################################
-  #### Above 3 methods (__init__, train, test) should always be implemented ####
-  ##############################################################################
-
-  # Model functions that contain info on neural network architectures
-  # Several model functions are to be implemented, for different domains
-  def model_fn(self, features, labels, mode):
-    """Auto-Scaling 3D CNN model.
-
-    For more information on how to write a model function, see:
-      https://www.tensorflow.org/guide/custom_estimators#write_a_model_function
-    """
-    input_layer = features
-
-    # Replace missing values by 0
-    hidden_layer = tf.where(tf.is_nan(input_layer),
-                           tf.zeros_like(input_layer), input_layer)
-
-    # Sum over time axis
-    hidden_layer = tf.reduce_sum(hidden_layer, axis=1)
-
-    # Flatten
-    hidden_layer = tf.layers.flatten(hidden_layer)
-
-    logits = tf.layers.dense(inputs=hidden_layer, units=self.output_dim)
-    sigmoid_tensor = tf.nn.sigmoid(logits, name="sigmoid_tensor")
-
-    predictions = {
-      # Generate predictions (for PREDICT and EVAL mode)
-      "classes": tf.argmax(input=logits, axis=1),
-      # "classes": binary_predictions,
-      # Add `sigmoid_tensor` to the graph. It is used for PREDICT and by the
-      # `logging_hook`.
-      "probabilities": sigmoid_tensor
-    }
-
-    if mode == tf.estimator.ModeKeys.PREDICT:
-      return tf.estimator.EstimatorSpec(mode=mode, predictions=predictions)
-
-    # Calculate Loss (for both TRAIN and EVAL modes)
-    # For multi-label classification, a correct loss is sigmoid cross entropy
-    loss = sigmoid_cross_entropy_with_logits(labels=labels, logits=logits)
-
-    # Configure the Training Op (for TRAIN mode)
-    if mode == tf.estimator.ModeKeys.TRAIN:
-      optimizer = tf.train.AdamOptimizer()
-      train_op = optimizer.minimize(
-          loss=loss,
-          global_step=tf.train.get_global_step())
-      return tf.estimator.EstimatorSpec(mode=mode, loss=loss, train_op=train_op)
-
-    # Add evaluation metrics (for EVAL mode)
-    assert mode == tf.estimator.ModeKeys.EVAL
-    eval_metric_ops = {
-        "accuracy": tf.metrics.accuracy(
-            labels=labels, predictions=predictions["classes"])}
-    return tf.estimator.EstimatorSpec(
-        mode=mode, loss=loss, eval_metric_ops=eval_metric_ops)
-
-  def input_function(self, dataset, is_training):
-    """Given `dataset` received by the method `self.train` or `self.test`,
-    prepare input to feed to model function.
-
-    For more information on how to write an input function, see:
-      https://www.tensorflow.org/guide/custom_estimators#write_an_input_function
-    """
-    dataset = dataset.map(lambda *x: (self.preprocess_tensor_4d(x[0]), x[1]))
-
-    if is_training:
-      # Shuffle input examples
-      dataset = dataset.shuffle(buffer_size=self.default_shuffle_buffer)
-      # Convert to RepeatDataset to train for several epochs
-      dataset = dataset.repeat()
-
-    # Set batch size
-    dataset = dataset.batch(batch_size=self.batch_size)
-
-    iterator_name = 'iterator_train' if is_training else 'iterator_test'
-
-    if not hasattr(self, iterator_name):
-      self.iterator = dataset.make_one_shot_iterator()
-
-    # iterator = dataset.make_one_shot_iterator()
-    iterator = self.iterator
-    example, labels = iterator.get_next()
-    return example, labels
-
-  def preprocess_tensor_4d(self, tensor_4d):
-    """Preprocess a 4-D tensor (only when some dimensions are `None`, i.e.
-    non-fixed). The output tensor wil have fixed, known shape.
-
-    Args:
-      tensor_4d: A Tensor of shape
-          [sequence_size, row_count, col_count, num_channels]
-          where some dimensions might be `None`.
-    Returns:
-      A 4-D Tensor with fixed, known shape.
-    """
-    tensor_4d_shape = tensor_4d.shape
-    logger.info("Tensor shape before preprocessing: {}".format(tensor_4d_shape))
-
-    if tensor_4d_shape[0] > 0 and tensor_4d_shape[0] < 10:
-      num_frames = tensor_4d_shape[0]
-    else:
-      num_frames = self.default_num_frames
-    if tensor_4d_shape[1] > 0:
-      new_row_count = tensor_4d_shape[1]
-    else:
-      new_row_count=self.default_image_size[0]
-    if tensor_4d_shape[2] > 0:
-      new_col_count = tensor_4d_shape[2]
-    else:
-      new_col_count=self.default_image_size[1]
-
-    if not tensor_4d_shape[0] > 0:
-      logger.info("Detected that examples have variable sequence_size, will " +
-                "randomly crop a sequence with num_frames = " +
-                "{}".format(num_frames))
-      tensor_4d = crop_time_axis(tensor_4d, num_frames=num_frames)
-    if not tensor_4d_shape[1] > 0 or not tensor_4d_shape[2] > 0:
-      logger.info("Detected that examples have variable space size, will " +
-                "resize space axes to (new_row_count, new_col_count) = " +
-                "{}".format((new_row_count, new_col_count)))
-      tensor_4d = resize_space_axes(tensor_4d,
-                                    new_row_count=new_row_count,
-                                    new_col_count=new_col_count)
-    logger.info("Tensor shape after preprocessing: {}".format(tensor_4d.shape))
-    return tensor_4d
-
-  def get_steps_to_train(self, remaining_time_budget):
-    """Get number of steps for training according to `remaining_time_budget`.
-
-    The strategy is:
-      1. If no training is done before, train for 10 steps (ten batches);
-      2. Otherwise, double the number of steps to train. Estimate the time
-         needed for training and test for this number of steps;
-      3. Compare to remaining time budget. If not enough, stop. Otherwise,
-         proceed to training/test and go to step 2.
-    """
-    if remaining_time_budget is None: # This is never true in the competition anyway
-      remaining_time_budget = 1200 # if no time limit is given, set to 20min
-
-    # for more conservative estimation
-    remaining_time_budget = min(remaining_time_budget - 60,
-                                remaining_time_budget * 0.95)
-
-    if len(self.li_steps_to_train) == 0:
-      return 10
-    else:
-      steps_to_train = self.li_steps_to_train[-1] * 2
-
-      # Estimate required time using linear regression
-      X = np.array(self.li_steps_to_train).reshape(-1, 1)
-      Y = np.array(self.li_cycle_length)
-      self.time_estimator.fit(X, Y)
-      X_test = np.array([steps_to_train]).reshape(-1, 1)
-      Y_pred = self.time_estimator.predict(X_test)
-
-      estimated_time = Y_pred[0]
-      self.li_estimated_time.append(estimated_time)
-
-      if estimated_time >= remaining_time_budget:
-        return 0
-      else:
-        return steps_to_train
-
-  def age(self):
-    return time.time() - self.birthday
-
-  def choose_to_stop_early(self):
-    """The criterion to stop further training (thus finish train/predict
-    process).
-    """
-    batch_size = self.batch_size
-    num_examples = self.num_examples_train
-    num_epochs = sum(self.li_steps_to_train) * batch_size / num_examples
-    logger.info("Model already trained for {:.4f} epochs.".format(num_epochs))
-    return num_epochs > self.num_epochs_we_want_to_train # Train for at least certain number of epochs then stop
-
-def sigmoid_cross_entropy_with_logits(labels=None, logits=None):
-  """Re-implementation of this function:
-    https://www.tensorflow.org/api_docs/python/tf/nn/sigmoid_cross_entropy_with_logits
-
-  Let z = labels, x = logits, then return the sigmoid cross entropy
-    max(x, 0) - x * z + log(1 + exp(-abs(x)))
-  (Then sum over all classes.)
-  """
-  labels = tf.cast(labels, dtype=tf.float32)
-  relu_logits = tf.nn.relu(logits)
-  exp_logits = tf.exp(- tf.abs(logits))
-  sigmoid_logits = tf.log(1 + exp_logits)
-  element_wise_xent = relu_logits - labels * logits + sigmoid_logits
-  return tf.reduce_sum(element_wise_xent)
-
-def get_num_entries(tensor):
-  """Return number of entries for a TensorFlow tensor.
-
-  Args:
-    tensor: a tf.Tensor or tf.SparseTensor object of shape
-        (batch_size, sequence_size, row_count, col_count[, num_channels])
-  Returns:
-    num_entries: number of entries of each example, which is equal to
-        sequence_size * row_count * col_count [* num_channels]
-  """
-  tensor_shape = tensor.shape
-  assert(len(tensor_shape) > 1)
-  num_entries  = 1
-  for i in tensor_shape[1:]:
-    num_entries *= int(i)
-  return num_entries
-
-def crop_time_axis(tensor_4d, num_frames, begin_index=None):
-  """Given a 4-D tensor, take a slice of length `num_frames` on its time axis.
-
-  Args:
-    tensor_4d: A Tensor of shape
-        [sequence_size, row_count, col_count, num_channels]
-    num_frames: An integer representing the resulted chunk (sequence) length
-    begin_index: The index of the beginning of the chunk. If `None`, chosen
-      randomly.
-  Returns:
-    A Tensor of sequence length `num_frames`, which is a chunk of `tensor_4d`.
-  """
-  # pad sequence if not long enough
-  pad_size = tf.maximum(num_frames - tf.shape(tensor_4d)[0], 0)
-  padded_tensor = tf.pad(tensor_4d, ((0, pad_size), (0, 0), (0, 0), (0, 0)))
-
-  # If not given, randomly choose the beginning index of frames
-  if not begin_index:
-    maxval = tf.shape(padded_tensor)[0] - num_frames + 1
-    begin_index = tf.random.uniform([1],
-                                    minval=0,
-                                    maxval=maxval,
-                                    dtype=tf.int32)
-    begin_index = tf.stack([begin_index[0], 0, 0, 0], name='begin_index')
-
-  sliced_tensor = tf.slice(padded_tensor,
-                           begin=begin_index,
-                           size=[num_frames, -1, -1, -1])
-
-  return sliced_tensor
-
-def resize_space_axes(tensor_4d, new_row_count, new_col_count):
-  """Given a 4-D tensor, resize space axes to have target size.
-
-  Args:
-    tensor_4d: A Tensor of shape
-        [sequence_size, row_count, col_count, num_channels].
-    new_row_count: An integer indicating the target row count.
-    new_col_count: An integer indicating the target column count.
-  Returns:
-    A Tensor of shape [sequence_size, target_row_count, target_col_count].
-  """
-  resized_images = tf.image.resize_images(tensor_4d,
-                                          size=(new_row_count, new_col_count))
-  return resized_images
-
-def get_logger(verbosity_level):
-  """Set logging format to something like:
-       2019-04-25 12:52:51,924 INFO model.py: <message>
-  """
-  logger = logging.getLogger(__file__)
-  logging_level = getattr(logging, verbosity_level)
-  logger.setLevel(logging_level)
-  formatter = logging.Formatter(
-    fmt='%(asctime)s %(levelname)s %(filename)s: %(message)s')
-  stdout_handler = logging.StreamHandler(sys.stdout)
-  stdout_handler.setLevel(logging_level)
-  stdout_handler.setFormatter(formatter)
-  stderr_handler = logging.StreamHandler(sys.stderr)
-  stderr_handler.setLevel(logging.WARNING)
-  stderr_handler.setFormatter(formatter)
-  logger.addHandler(stdout_handler)
-  logger.addHandler(stderr_handler)
-  logger.propagate = False
-  return logger
-
-logger = get_logger('INFO')
+import torch
+import torchvision as tv
+import numpy as np
+
+import skeleton
+from architectures.resnet import ResNet18
+from skeleton.projects import LogicModel, get_logger
+from skeleton.projects.others import NBAC, AUC
+
+
+torch.backends.cudnn.benchmark = True
+threads = [
+    threading.Thread(target=lambda: torch.cuda.synchronize()),
+    threading.Thread(target=lambda: tf.Session())
+]
+[t.start() for t in threads]
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+
+LOGGER = get_logger(__name__)
+
+
+class Model(LogicModel):
+    def __init__(self, metadata):
+        super(Model, self).__init__(metadata)
+        self.use_test_time_augmentation = False
+
+    def build(self):
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        in_channels = self.info['dataset']['shape'][-1]
+        num_class = self.info['dataset']['num_class']
+        # torch.cuda.synchronize()
+
+        LOGGER.info('[init] session')
+        [t.join() for t in threads]
+
+        self.device = torch.device('cuda', 0)
+        self.session = tf.Session()
+
+        LOGGER.info('[init] Model')
+        Network = ResNet18  # ResNet18  # BasicNet, SENet18, ResNet18
+        self.model = Network(in_channels, num_class)
+        self.model_pred = Network(in_channels, num_class).eval()
+        # torch.cuda.synchronize()
+
+        LOGGER.info('[init] weight initialize')
+        if Network in [ResNet18]:
+            model_path = os.path.join(base_dir, 'models')
+            LOGGER.info('model path: %s', model_path)
+
+            self.model.init(model_dir=model_path, gain=1.0)
+        else:
+            self.model.init(gain=1.0)
+        # torch.cuda.synchronize()
+
+        LOGGER.info('[init] copy to device')
+        self.model = self.model.to(device=self.device).half()
+        self.model_pred = self.model_pred.to(device=self.device).half()
+        self.is_half = self.model._half
+        # torch.cuda.synchronize()
+
+        LOGGER.info('[init] done.')
+
+    def update_model(self):
+        num_class = self.info['dataset']['num_class']
+
+        epsilon = min(0.1, max(0.001, 0.001 * pow(num_class / 10, 2)))
+        if self.is_multiclass():
+            self.model.loss_fn = torch.nn.BCEWithLogitsLoss(reduction='none')
+            # self.model.loss_fn = skeleton.nn.BinaryCrossEntropyLabelSmooth(num_class, epsilon=epsilon, reduction='none')
+            self.tau = 8.0
+            LOGGER.info('[update_model] %s (tau:%f, epsilon:%f)', self.model.loss_fn.__class__.__name__, self.tau, epsilon)
+        else:
+            self.model.loss_fn = torch.nn.CrossEntropyLoss(reduction='none')
+            # self.model.loss_fn = skeleton.nn.CrossEntropyLabelSmooth(num_class, epsilon=epsilon)
+            self.tau = 8.0
+            LOGGER.info('[update_model] %s (tau:%f, epsilon:%f)', self.model.loss_fn.__class__.__name__, self.tau, epsilon)
+        self.model_pred.loss_fn = self.model.loss_fn
+
+        self.init_opt()
+        LOGGER.info('[update] done.')
+
+    def init_opt(self):
+        steps_per_epoch = self.hyper_params['dataset']['steps_per_epoch']
+        batch_size = self.hyper_params['dataset']['batch_size']
+
+        params = [p for p in self.model.parameters() if p.requires_grad]
+
+        warmup_multiplier = 2.0
+        lr_multiplier = max(1.0, batch_size / 32)
+        scheduler_lr = skeleton.optim.gradual_warm_up(
+            skeleton.optim.get_reduce_on_plateau_scheduler(
+                0.025 * lr_multiplier / warmup_multiplier,
+                patience=10, factor=.5, metric_name='train_loss'
+            ),
+            warm_up_epoch=5,
+            multiplier=warmup_multiplier
+        )
+        self.optimizer = skeleton.optim.ScheduledOptimizer(
+            params,
+            torch.optim.SGD,
+            # skeleton.optim.SGDW,
+            steps_per_epoch=steps_per_epoch,
+            clip_grad_max_norm=None,
+            lr=scheduler_lr,
+            momentum=0.9,
+            weight_decay=0.001 * 1 / 4,
+            nesterov=True
+        )
+        LOGGER.info('[optimizer] %s (batch_size:%d)', self.optimizer._optimizer.__class__.__name__, batch_size)
+
+    def adapt(self, remaining_time_budget=None):
+        epoch = self.info['loop']['epoch']
+        input_shape = self.hyper_params['dataset']['input']
+        height, width = input_shape[:2]
+        batch_size = self.hyper_params['dataset']['batch_size']
+
+        train_score = np.average([c['train']['score'] for c in self.checkpoints[-5:]])
+        valid_score = np.average([c['valid']['score'] for c in self.checkpoints[-5:]])
+        LOGGER.info('[adapt] [%04d/%04d] train:%.3f valid:%.3f',
+                    epoch, self.hyper_params['dataset']['max_epoch'],
+                    train_score, valid_score)
+
+        self.use_test_time_augmentation = self.info['loop']['test'] > 1
+
+        # Adapt Apply Fast auto aug
+        if self.hyper_params['conditions']['use_fast_auto_aug'] and \
+                (train_score > 0.995 or self.info['terminate']) and \
+                remaining_time_budget > 120 and \
+                self.dataloaders['valid'] is not None and \
+                not hasattr(self, 'update_transforms'):
+            LOGGER.info('[adapt] search fast auto aug policy')
+            self.update_transforms = True
+            self.info['terminate'] = True
+
+            # reset optimizer pararms
+            self.init_opt()
+            self.hyper_params['conditions']['max_inner_loop_ratio'] *= 3
+            self.hyper_params['conditions']['threshold_valid_score_diff'] = 0.00001
+            self.hyper_params['conditions']['min_lr'] = 1e-8
+
+            original_valid_policy = self.dataloaders['valid'].dataset.transform.transforms
+            original_train_policy = self.dataloaders['train'].dataset.transform.transforms
+            policy = skeleton.data.augmentations.autoaug_policy()
+
+            num_policy_search = 100
+            num_sub_policy = 3
+            num_select_policy = 3
+            searched_policy = []
+            for policy_search in range(num_policy_search):
+                selected_idx = np.random.choice(list(range(len(policy))), num_sub_policy)
+                selected_policy = [policy[i] for i in selected_idx]
+                self.dataloaders['valid'].dataset.transform.transforms = original_valid_policy + [
+                    lambda t: t.cpu().float() if isinstance(t, torch.Tensor) else torch.Tensor(t),
+                    tv.transforms.ToPILImage(),
+                    skeleton.data.augmentations.Augmentation(
+                        selected_policy
+                    ),
+                    tv.transforms.ToTensor(),
+                    lambda t: t.to(device=self.device).half()
+                ]
+
+                metrics = []
+                for policy_eval in range(num_sub_policy):
+                    valid_dataloader = self.build_or_get_dataloader('valid', self.datasets['valid'], self.datasets['num_valids'])
+                    # original_valid_batch_size = valid_dataloader.batch_sampler.batch_size
+                    # valid_dataloader.batch_sampler.batch_size = batch_size
+
+                    valid_metrics = self.epoch_valid(self.info['loop']['epoch'], valid_dataloader, reduction='max')
+
+                    # valid_dataloader.batch_sampler.batch_size = original_valid_batch_size
+                    metrics.append(valid_metrics)
+                loss = np.max([m['loss'] for m in metrics])
+                score = np.max([m['score'] for m in metrics])
+                LOGGER.info('[adapt] [FAA] [%02d/%02d] score: %f, loss: %f, selected_policy: %s',
+                            policy_search, num_policy_search, score, loss, selected_policy)
+
+                searched_policy.append({
+                    'loss': loss,
+                    'score': score,
+                    'policy': selected_policy
+                })
+
+            flatten = lambda l: [item for sublist in l for item in sublist]
+
+            policy_sorted_index = np.argsort([p['score'] for p in searched_policy])[::-1][:num_select_policy]
+            policy = flatten([searched_policy[idx]['policy'] for idx in policy_sorted_index])
+            policy = skeleton.data.augmentations.remove_duplicates(policy)
+
+            LOGGER.info('[adapt] [FAA] scores: %s',
+                        [searched_policy[idx]['score'] for idx in policy_sorted_index])
+
+            self.dataloaders['valid'].dataset.transform.transforms = original_valid_policy
+            self.dataloaders['train'].dataset.transform.transforms = original_train_policy + [
+                lambda t: t.cpu().float() if isinstance(t, torch.Tensor) else torch.Tensor(t),
+                tv.transforms.ToPILImage(),
+                skeleton.data.augmentations.Augmentation(
+                    policy
+                ),
+                tv.transforms.ToTensor(),
+                lambda t: t.to(device=self.device).half()
+            ]
+
+    def activation(self, logits):
+        if self.is_multiclass():
+            logits = torch.sigmoid(logits)
+            prediction = (logits > 0.5).to(logits.dtype)
+        else:
+            logits = torch.softmax(logits, dim=-1)
+            _, k = logits.max(-1)
+            prediction = torch.zeros(logits.shape, dtype=logits.dtype, device=logits.device).scatter_(-1, k.view(-1, 1), 1.0)
+        return logits, prediction
+
+    def get_model_state(self):
+        return self.model.state_dict()
+
+    def epoch_train(self, epoch, train, model=None, optimizer=None):
+        model = model if model is not None else self.model
+        optimizer = optimizer if optimizer is not None else self.optimizer
+        model.train()
+        num_steps = len(train)
+        metrics = []
+        for step, (examples, labels) in enumerate(train):
+            if examples.shape[0] == 1:
+                examples = examples[0]
+                labels = labels[0]
+            original_labels = labels
+            if not self.is_multiclass():
+                labels = labels.argmax(dim=-1)
+
+            # batch_size = examples.size(0)
+            # examples = torch.cat([examples, torch.flip(examples, dims=[-1])], dim=0)
+            # labels = torch.cat([labels, labels], dim=0)
+
+            skeleton.nn.MoveToHook.to((examples, labels), self.device, self.is_half)
+            logits, loss = model(examples, labels, tau=self.tau)
+            loss.backward()
+
+            max_epoch = self.hyper_params['dataset']['max_epoch']
+            optimizer.update(maximum_epoch=max_epoch)
+            optimizer.step()
+            model.zero_grad()
+
+            # logits1, logits2 = torch.split(logits, batch_size, dim=0)
+            # logits = (logits1 + logits2) / 2.0
+
+            logits, prediction = self.activation(logits.float())
+            tpr, tnr, nbac = NBAC(prediction, original_labels.float())
+            auc = AUC(logits, original_labels.float())
+
+            score = auc if self.hyper_params['conditions']['score_type'] == 'auc' else float(nbac.detach().float())
+            metrics.append({
+                'loss': loss.detach().float().cpu(),
+                'score': score,
+            })
+
+            LOGGER.debug(
+                '[train] [%02d] [%03d/%03d] loss:%.6f AUC:%.3f NBAC:%.3f tpr:%.3f tnr:%.3f, lr:%.8f',
+                epoch, step, num_steps, loss, auc, nbac, tpr, tnr,
+                optimizer.get_learning_rate()
+            )
+
+        train_loss = np.average([m['loss'] for m in metrics])
+        train_score = np.average([m['score'] for m in metrics])
+        optimizer.update(train_loss=train_loss)
+
+        return {
+            'loss': train_loss,
+            'score': train_score,
+        }
+
+    def epoch_valid(self, epoch, valid, reduction='avg'):
+        self.model.eval()
+        num_steps = len(valid)
+        metrics = []
+        tau = self.tau
+
+        for step, (examples, labels) in enumerate(valid):
+            original_labels = labels
+            if not self.is_multiclass():
+                labels = labels.argmax(dim=-1)
+
+            # skeleton.nn.MoveToHook.to((examples, labels), self.device, self.is_half)
+            logits, loss = self.model(examples, labels, tau=tau, reduction=reduction)
+
+            logits, prediction = self.activation(logits.float())
+            tpr, tnr, nbac = NBAC(prediction, original_labels.float())
+            auc = AUC(logits, original_labels.float())
+
+            score = auc if self.hyper_params['conditions']['score_type'] == 'auc' else float(nbac.detach().float())
+            metrics.append({
+                'loss': loss.detach().float().cpu(),
+                'score': score,
+            })
+
+            LOGGER.debug(
+                '[valid] [%02d] [%03d/%03d] loss:%.6f AUC:%.3f NBAC:%.3f tpr:%.3f tnr:%.3f, lr:%.8f',
+                epoch, step, num_steps, loss, auc, nbac, tpr, tnr,
+                self.optimizer.get_learning_rate()
+            )
+        if reduction == 'avg':
+            valid_loss = np.average([m['loss'] for m in metrics])
+            valid_score = np.average([m['score'] for m in metrics])
+        elif reduction == 'max':
+            valid_loss = np.max([m['loss'] for m in metrics])
+            valid_score = np.max([m['score'] for m in metrics])
+        elif reduction == 'min':
+            valid_loss = np.min([m['loss'] for m in metrics])
+            valid_score = np.min([m['score'] for m in metrics])
+        else:
+            raise Exception('not support reduction method: %s' % reduction)
+        self.optimizer.update(valid_loss=np.average(valid_loss))
+
+        return {
+            'loss': valid_loss,
+            'score': valid_score,
+        }
+
+    def skip_valid(self, epoch):
+        LOGGER.debug('[valid] skip')
+        return {
+            'loss': 99.9,
+            'score': epoch * 1e-4,
+        }
+
+    def prediction(self, dataloader):
+        self.model_pred.eval()
+        epoch = self.info['loop']['epoch']
+
+        best_idx = np.argmax(np.array([c['valid']['score'] for c in self.checkpoints]))
+        best_loss = self.checkpoints[best_idx]['valid']['loss']
+        best_score = self.checkpoints[best_idx]['valid']['score']
+
+        tau = self.tau
+
+        states = self.checkpoints[best_idx]['model']
+        self.model_pred.load_state_dict(states)
+        LOGGER.info('best checkpoints at %d/%d (valid loss:%f score:%f) tau:%f',
+                    best_idx + 1, len(self.checkpoints), best_loss, best_score, tau)
+
+        predictions = []
+        self.model_pred.eval()
+        for step, (examples, labels) in enumerate(dataloader):
+            # examples = examples[0]
+            # skeleton.nn.MoveToHook.to((examples, labels), self.device, self.is_half)
+
+            batch_size = examples.size(0)
+
+            # Test-Time Augment flip
+            if self.use_test_time_augmentation:
+                examples = torch.cat([examples, torch.flip(examples, dims=[-1])], dim=0)
+
+            # skeleton.nn.MoveToHook.to((examples, labels), self.device, self.is_half)
+            logits = self.model_pred(examples, tau=tau)
+
+            # avergae
+            if self.use_test_time_augmentation:
+                logits1, logits2 = torch.split(logits, batch_size, dim=0)
+                logits = (logits1 + logits2) / 2.0
+
+            logits, prediction = self.activation(logits)
+
+            predictions.append(logits.detach().float().cpu().numpy())
+
+        predictions = np.concatenate(predictions, axis=0).astype(np.float)
+        return predictions
