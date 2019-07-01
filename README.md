@@ -5,6 +5,11 @@
 
 A special designed **[Fast AutoAugment][]** is implemented to effectively maximize accuracy in **various tasks** while paying attention to **limited resources**.
 
+## [AutoCV Challenge][] Introduction
+#### Fully Automated Image Classification without ANY human intervention
+> Despite recent successes of deep learning and other machine learning techniques, practical experience and expertise is still required to select models and/or choose hyper-parameters when applying techniques to new datasets. This problem is drawing increasing interest, yielding progress towards fully automated solutions. In this challenge your machine learning code is trained and tested on this platform, without human intervention whatsoever, on image classification tasks you have never seen before, with time and memory limitations. All problems are multi-label classification problems, coming from various domains including medical imaging, satellite imaging, object recognition, character recognition, face recognition, etc. They lend themselves to deep learning solutions, but other methods may be used. Raw data is provided, but formatted in a uniform manner, to encourage you to submit generic algorithms.
+
+
 ## Results
 ### Public
 
@@ -98,3 +103,4 @@ this project is developed by [Woonhyuk Baek][], [Ildoo Kim][] and [Sungbin Lim][
 [Ildoo Kim]: https://github.com/ildoonet
 [Woonhyuk Baek]: https://github.com/wbaek
 [Fast AutoAugment]: https://github.com/kakaobrain/fast-autoaugment
+[AutoCV Challenge]: https://autodl.lri.fr/competitions/118#home
