@@ -26,16 +26,34 @@ def get_logger(name, stream=sys.stderr):
 LOGGER = get_logger(__name__)
 
 
-def get_tf_resize(height=None, width=None):
+def get_tf_resize(height, width, times=1, min_value=0.0, max_value=1.0):
     def preprocessor(tensor):
-        tensor = tensor[0]
-        in_height, in_width, in_channels = tensor.shape
-        LOGGER.info('[get_tf_resize] shape:%s', tensor.shape)
+        in_times, in_height, in_width, in_channels = tensor.get_shape()
+        LOGGER.info('[get_tf_resize] shape:%s', (in_times, in_height, in_width, in_channels))
 
         if width == in_width and height == in_height:
             LOGGER.info('[get_tf_resize] do not resize (%dx%d)', width, height)
-        elif width is not None and height is not None:
-            tensor = tf.image.resize_images(tensor, (height, width))
+        else:
+            tensor = tf.image.resize_images(tensor, (height, width), method=tf.image.ResizeMethod.BICUBIC)
+
+        if times != in_times or times > 1:
+            # resize time axis using NN (to select frame \wo interpolate)
+            tensor = tf.reshape(tensor, [-1, height * width, in_channels])
+            tensor = tf.image.resize_images(tensor, (times,  height * width), method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
+            tensor = tf.reshape(tensor, [times, height, width, in_channels])
+
+            # sampling at center of time axis
+            # tensor = tensor[int(times // 2)] # single image
+            # delta = int(times // 2)
+            # tensor = tensor[delta:delta+times]
+
+        if times == 1:
+            tensor = tensor[int(times // 2)]
+
+        delta = max_value - min_value
+        if delta < 0.9 or delta > 1.1 or min_value < -0.1 or min_value > 0.1:
+            LOGGER.info('[get_tf_resize] min-max normalize(min:%f, max:%f)', min_value, max_value)
+            tensor = (tensor - min_value) / delta
 
         # tensor = (tensor - 0.5) / 0.25
         return tensor
@@ -46,7 +64,14 @@ def get_tf_to_tensor(is_random_flip=True):
     def preprocessor(tensor):
         if is_random_flip:
             tensor = tf.image.random_flip_left_right(tensor)
-        tensor = tf.transpose(tensor, perm=[2, 0, 1])
+        dims = len(tensor.shape)
+        # LOGGER.info('[get_tf_to_tensor] dims:%s', dims)
+        if dims == 3:
+            # height, width, channels -> channels, height, width
+            tensor = tf.transpose(tensor, perm=[2, 0, 1])
+        elif dims == 4:
+            # time, height, width, channels -> time, channels, height, width
+            tensor = tf.transpose(tensor, perm=[0, 3, 1, 2])
         return tensor
     return preprocessor
 

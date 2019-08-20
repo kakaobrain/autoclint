@@ -28,7 +28,7 @@ class LogicModel(Model):
         LOGGER.info('num_class:  %s', self.metadata.get_output_size())
 
         test_metadata_filename = self.metadata.get_dataset_name().replace('train', 'test') + '/metadata.textproto'
-        self.num_test = [int(line.split(':')[1]) for line in open(test_metadata_filename, 'r').readlines() if 'sample_count' in line][0]
+        self.num_test = [int(line.split(':')[1]) for line in open(test_metadata_filename, 'r').readlines()[:3] if 'sample_count' in line][0]
         LOGGER.info('num_test:  %d', self.num_test)
 
         self.timers = {
@@ -59,21 +59,30 @@ class LogicModel(Model):
 
         # TODO: adaptive logic for hyper parameter
         self.hyper_params = {
+            'optimizer': {
+                'lr': 0.025,
+            },
             'dataset': {
                 'train_info_sample': 256,
                 'cv_valid_ratio': 0.1,
-                'max_valid_count': 128,
+                'max_valid_count': 256,
 
                 'max_size': 64,
                 'base': 16,  # input size should be multipliers of 16
+                'max_times': 8,
+
+                'enough_count': {
+                    'image': 10000,
+                    'video': 1000
+                },
 
                 'batch_size': 32,
-                'steps_per_epoch': 20,
-                'max_epoch': 100,  # initial value
+                'steps_per_epoch': 30,
+                'max_epoch': 1000,  # initial value
                 'batch_size_test': 256,
             },
             'checkpoints': {
-                'keep': 30
+                'keep': 50
             },
             'conditions': {
                 'score_type': 'auc',
@@ -85,6 +94,7 @@ class LogicModel(Model):
                 'test_after_at_least_seconds_step': 2,
 
                 'threshold_valid_score_diff': 0.001,
+                'threshold_valid_best_score': 0.997,
                 'max_inner_loop_ratio': 0.2,
                 'min_lr': 1e-6,
                 'use_fast_auto_aug': True
@@ -101,6 +111,7 @@ class LogicModel(Model):
             'valid': None,
             'test': None
         }
+        self.is_skip_valid = True
         LOGGER.info('[init] done')
 
     def __repr__(self):
@@ -132,7 +143,10 @@ class LogicModel(Model):
         raise NotImplementedError
 
     def is_multiclass(self):
-        return self.info['dataset']['train']['is_multiclass']
+        return self.info['dataset']['sample']['is_multiclass']
+
+    def is_video(self):
+        return self.info['dataset']['sample']['is_video']
 
     def build_or_get_train_dataloader(self, dataset):
         if not self.info['condition']['first']['train']:
@@ -147,15 +161,16 @@ class LogicModel(Model):
 
         LOGGER.info('[%s] scan before', 'sample')
         num_samples = self.hyper_params['dataset']['train_info_sample']
-        sample = dataset.take(num_samples).prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
+        sample = dataset.take(num_samples).prefetch(buffer_size=num_samples)
         train = skeleton.data.TFDataset(self.session, sample, num_samples)
-        self.info['dataset']['train'] = train.scan(samples=num_samples)
+        self.info['dataset']['sample'] = train.scan(samples=num_samples)
         del train
         del sample
         LOGGER.info('[%s] scan after', 'sample')
 
         # input_shape = [min(s, self.hyper_params['dataset']['max_size']) for s in self.info['dataset']['shape']]
-        height, width, channels = self.info['dataset']['train']['example']['shape'][1:]
+        times, height, width, channels = self.info['dataset']['sample']['example']['shape']
+        values = self.info['dataset']['sample']['example']['value']
         aspect_ratio = width / height
 
         # fit image area to 64x64
@@ -171,174 +186,82 @@ class LogicModel(Model):
 
         # too small image use original image
         if width <= 32 and height <= 32:
-            input_shape = [height, width, channels]
+            input_shape = [times, height, width, channels]
         else:
-            size = list(map(lambda x: int(x / self.hyper_params['dataset']['base'] + 0.8) * self.hyper_params['dataset']['base'], size))
-            input_shape = size + [channels]
-        LOGGER.info('[input_shape] origin:%s aspect_ratio:%f target:%s', [height, width, channels], aspect_ratio, input_shape)
+            fit_size_fn = lambda x: int(x / self.hyper_params['dataset']['base'] + 0.8) * self.hyper_params['dataset']['base']
+            size = list(map(fit_size_fn, size))
+            min_times = min(times, self.hyper_params['dataset']['max_times'])
+            input_shape = [fit_size_fn(min_times) if min_times > self.hyper_params['dataset']['base'] else min_times] + size + [channels]
+
+        if self.is_video():
+            self.hyper_params['dataset']['batch_size'] = int(self.hyper_params['dataset']['batch_size'] // 2)
+            # self.hyper_params['dataset']['batch_size_test'] = int(self.hyper_params['dataset']['batch_size_test'] // 2)
+        LOGGER.info('[input_shape] origin:%s aspect_ratio:%f target:%s', [times, height, width, channels], aspect_ratio, input_shape)
 
         self.hyper_params['dataset']['input'] = input_shape
 
         num_class = self.info['dataset']['num_class']
         batch_size = self.hyper_params['dataset']['batch_size']
-        if num_class > batch_size / 2:
+        if num_class > batch_size / 2 and not self.is_video():
             self.hyper_params['dataset']['batch_size'] = batch_size * 2
         batch_size = self.hyper_params['dataset']['batch_size']
 
-        enough_image = num_images > 5000
-        if not enough_image:
-            preprocessor1 = get_tf_resize(input_shape[0], input_shape[1])
-            preprocessor2 = get_tf_to_tensor(is_random_flip=False)
-            preprocessor = lambda *tensor: preprocessor2(preprocessor1(*tensor))
+        preprocessor1 = get_tf_resize(input_shape[1], input_shape[2], times=input_shape[0], min_value=values['min'], max_value=values['max'])
 
-            batchsize = 128
-            tf_dataset = dataset.apply(
-                tf.data.experimental.map_and_batch(
-                    map_func=lambda *x: (preprocessor(x[0]), x[1]),
-                    batch_size=batchsize,
-                    drop_remainder=False,
-                    num_parallel_calls=tf.data.experimental.AUTOTUNE
-                )
-            ).prefetch(buffer_size=3)
-            dataset = skeleton.data.TFDataset(self.session, tf_dataset, num_images)
+        dataset = dataset.map(
+            lambda *x: (preprocessor1(x[0]), x[1]),
+            num_parallel_calls=tf.data.experimental.AUTOTUNE
+        )
+        # dataset = dataset.prefetch(buffer_size=batch_size * 3)
+        # dataset = dataset.shuffle(buffer_size=num_valids * 4, reshuffle_each_iteration=False)
 
-            LOGGER.info('[%s] scan before', 'train')
-            self.info['dataset']['train'], tensors = dataset.scan(
-                with_tensors=True, is_batch=True,
-                device=self.device, half=self.is_half
-            )
-            tensors = [torch.cat(t, dim=0) for t in zip(*tensors)]
-            LOGGER.info('[%s] scan after', 'train')
+        must_shuffle = self.info['dataset']['sample']['label']['zero_count'] / self.info['dataset']['num_class'] >= 0.5
+        enough_count = self.hyper_params['dataset']['enough_count']['video'] if self.is_video() else self.hyper_params['dataset']['enough_count']['image']
+        if must_shuffle or num_images < enough_count:
+            dataset = dataset.shuffle(buffer_size=min(enough_count, num_images), reshuffle_each_iteration=False)
+            LOGGER.info('[dataset] shuffle before split train/valid')
 
-            del tf_dataset
-            del dataset
-
-            dataset = torch.utils.data.TensorDataset(*tensors)
-            index = list(range(num_images))
-
-            # StratifiedShuffleSplit
-            labels = LabelEncoder().fit_transform([''.join(str(l)) for l in tensors[1]])
-            unique, counts = np.unique(np.array(labels), return_counts=True)
-            num_single = sum(counts == 1)
-            if num_single > 0:
-                target = unique[np.argmax(counts)]
-                single = unique[counts == 1]
-                for idx, l in enumerate(labels):
-                    if l not in single:
-                        continue
-                    labels[idx] = target
-            LOGGER.info('[StratifiedShuffleSplit] unique label counts: %d, single: %d', len(counts), num_single)
-
-            sss = StratifiedShuffleSplit(n_splits=1, test_size=num_valids, random_state=None)
-            sss = sss.split(index, labels)
-            train_idx, valid_idx = next(sss)
-
-            # random.shuffle(index)
-            # train_idx = index[num_valids:]
-            # valid_idx = index[:num_valids]
-
-            train_dataset = torch.utils.data.Subset(dataset, train_idx)
-            valid_dataset = torch.utils.data.Subset(dataset, valid_idx)
-
-            # Stratified Shuffle
-            labels = [labels[idx] for idx in train_idx]
-            sampler = skeleton.data.StratifiedSampler(labels)
-            # sampler = skeleton.data.InfiniteSampler(train_dataset, shuffle=True)
-
-            transform = tv.transforms.Compose([
-                skeleton.data.RandomFlip(p=0.5),
-            ])
-            train_dataset = skeleton.data.TransformDataset(train_dataset, transform, index=0)
-
-            transform = tv.transforms.Compose([
-            ])
-            valid_dataset = skeleton.data.TransformDataset(valid_dataset, transform, index=0)
-
-            self.dataloaders['train'] = skeleton.data.FixedSizeDataLoader(
-                train_dataset,
-                steps=self.hyper_params['dataset']['steps_per_epoch'],
-                batch_size=self.hyper_params['dataset']['batch_size'],
-                shuffle=True, drop_last=True, num_workers=0, pin_memory=False,
-                sampler=sampler
-            )
-            self.dataloaders['valid'] = torch.utils.data.DataLoader(
-                valid_dataset,
-                batch_size=self.hyper_params['dataset']['batch_size_test'],
-                shuffle=False, drop_last=False, num_workers=0, pin_memory=False
-            )
-            self.info['condition']['first']['valid'] = False
-
-            self.datasets = {
-                'train': None,
-                'valid': None,
-                'num_trains': num_trains,
-                'num_valids': num_valids
-            }
-        else:
-            # dataset = dataset.shuffle(buffer_size=num_valids * 4, reshuffle_each_iteration=False)
-            train = dataset.skip(num_valids)
-            valid = dataset.take(num_valids)
-            self.datasets = {
-                'train': train,
-                'valid': valid,
-                'num_trains': num_trains,
-                'num_valids': num_valids
-            }
+        train = dataset.skip(num_valids)
+        valid = dataset.take(num_valids)
+        self.datasets = {
+            'train': train,
+            'valid': valid,
+            'num_trains': num_trains,
+            'num_valids': num_valids
+        }
         return self.build_or_get_dataloader('train', self.datasets['train'], num_trains)
 
     def build_or_get_dataloader(self, mode, dataset=None, num_items=0):
         if mode in self.dataloaders and self.dataloaders[mode] is not None:
             return self.dataloaders[mode]
 
+        enough_count = self.hyper_params['dataset']['enough_count']['video'] if self.is_video() else self.hyper_params['dataset']['enough_count']['image']
+
         LOGGER.debug('[dataloader] %s build start', mode)
+        values = self.info['dataset']['sample']['example']['value']
         if mode == 'train':
             batch_size = self.hyper_params['dataset']['batch_size']
-            input_shape = self.hyper_params['dataset']['input']
+            # input_shape = self.hyper_params['dataset']['input']
+            preprocessor = get_tf_to_tensor(is_random_flip=True)
+            # dataset = dataset.prefetch(buffer_size=batch_size * 3)
 
-            preprocessor1 = get_tf_resize(input_shape[0], input_shape[1])
-            preprocessor2 = get_tf_to_tensor(is_random_flip=True)
-            preprocessor = lambda *tensor: preprocessor2(preprocessor1(*tensor))
-
-            if num_items < 10000:
-                dataset = dataset.map(
-                    lambda *x: (preprocessor1(x[0]), x[1]),
-                    num_parallel_calls=tf.data.experimental.AUTOTUNE
-                )
-
+            if num_items < enough_count:
                 dataset = dataset.cache()
 
-                dataset = dataset.apply(
-                    tf.data.experimental.shuffle_and_repeat(buffer_size=batch_size * 4)
-                )
-
-                dataset = dataset.map(
-                    lambda *x: (preprocessor2(x[0]), x[1]),
-                    num_parallel_calls=tf.data.experimental.AUTOTUNE
-                ).prefetch(buffer_size=batch_size * 3)
-
-            else:
-                dataset = dataset.apply(
-                    tf.data.experimental.shuffle_and_repeat(buffer_size=batch_size * 4)
-                )
-
-                dataset = dataset.map(
-                    lambda *x: (preprocessor(x[0]), x[1]),
-                    num_parallel_calls=tf.data.experimental.AUTOTUNE
-                ).prefetch(buffer_size=batch_size * 3)
-
             # dataset = dataset.apply(
-            #     tf.data.experimental.map_and_batch(
-            #         map_func=lambda *x: (preprocessor(x[0]), x[1]),
-            #         batch_size=batch_size,
-            #         drop_remainder=False,
-            #         num_parallel_calls=tf.data.experimental.AUTOTUNE
-            #     )
-            # ).prefetch(tf.data.experimental.AUTOTUNE)
-            # batch_size = None
+            #     tf.data.experimental.shuffle_and_repeat(buffer_size=min(enough_count, num_items))
+            # )
+            dataset = dataset.repeat()
+            dataset = dataset.map(
+                lambda *x: (preprocessor(x[0]), x[1]),
+                num_parallel_calls=tf.data.experimental.AUTOTUNE
+            )
+            dataset = dataset.prefetch(buffer_size=batch_size * 8)
 
             dataset = skeleton.data.TFDataset(self.session, dataset, num_items)
 
             transform = tv.transforms.Compose([
+                # skeleton.data.Cutout(int(input_shape[1] // 4), int(input_shape[2] // 4))
             ])
             dataset = skeleton.data.TransformDataset(dataset, transform, index=0)
 
@@ -351,9 +274,13 @@ class LogicModel(Model):
         elif mode in ['valid', 'test']:
             batch_size = self.hyper_params['dataset']['batch_size_test']
             input_shape = self.hyper_params['dataset']['input']
-            preprocessor1 = get_tf_resize(input_shape[0], input_shape[1])
+
             preprocessor2 = get_tf_to_tensor(is_random_flip=False)
-            preprocessor = lambda *tensor: preprocessor2(preprocessor1(*tensor))
+            if mode == 'valid':
+                preprocessor = preprocessor2
+            else:
+                preprocessor1 = get_tf_resize(input_shape[1], input_shape[2], times=input_shape[0], min_value=values['min'], max_value=values['max'])
+                preprocessor = lambda *tensor: preprocessor2(preprocessor1(*tensor))
 
             # batch_size = 500
             tf_dataset = dataset.apply(
@@ -363,7 +290,7 @@ class LogicModel(Model):
                     drop_remainder=False,
                     num_parallel_calls=tf.data.experimental.AUTOTUNE
                 )
-            ).prefetch(buffer_size=3)
+            ).prefetch(buffer_size=8)
 
             dataset = skeleton.data.TFDataset(self.session, tf_dataset, num_items)
 
@@ -379,40 +306,18 @@ class LogicModel(Model):
             del dataset
             dataset = skeleton.data.prefetch_dataset(tensors)
 
-            transform = tv.transforms.Compose([
-            ])
-            dataset = skeleton.data.TransformDataset(dataset, transform, index=0)
+            if 'valid' == mode:
+                transform = tv.transforms.Compose([
+                ])
+                dataset = skeleton.data.TransformDataset(dataset, transform, index=0)
+
             self.dataloaders[mode] = torch.utils.data.DataLoader(
                 dataset,
                 batch_size=self.hyper_params['dataset']['batch_size_test'],
                 shuffle=False, drop_last=False, num_workers=0, pin_memory=False
             )
+
             self.info['condition']['first'][mode] = False
-        # elif mode == 'test':
-        #     batch_size = self.hyper_params['dataset']['batch_size_test']
-        #     input_shape = self.hyper_params['dataset']['input']
-        #     preprocessor1 = get_tf_resize(input_shape[0], input_shape[1])
-        #     preprocessor2 = get_tf_to_tensor(is_random_flip=False)
-        #     preprocessor = lambda *tensor: preprocessor2(preprocessor1(*tensor))
-        #
-        #     tf_dataset = dataset.apply(
-        #         tf.data.experimental.map_and_batch(
-        #             map_func=lambda *x: (preprocessor(x[0]), x[1]),
-        #             batch_size=batch_size,
-        #             drop_remainder=False,
-        #             num_parallel_calls=tf.data.experimental.AUTOTUNE
-        #         )
-        #     ).cache().repeat().prefetch(buffer_size=2)
-        #
-        #     steps = num_items // batch_size + (1 if num_items % batch_size > 0 else 0)
-        #     dataset = skeleton.data.TFDataset(self.session, tf_dataset, steps)
-        #
-        #     self.dataloaders[mode] = torch.utils.data.DataLoader(
-        #         dataset,
-        #         batch_size=1, #self.hyper_params['dataset']['batch_size_test'],
-        #         shuffle=False, drop_last=False, num_workers=0, pin_memory=True
-        #     )
-        #     self.info['condition']['first'][mode] = False
 
         LOGGER.debug('[dataloader] %s build end', mode)
         return self.dataloaders[mode]
@@ -443,7 +348,7 @@ class LogicModel(Model):
             LOGGER.info('[BREAK] early %d epoch', self.hyper_params['conditions']['early_epoch'])
             return True
 
-        if best_score > 0.995:
+        if best_score > self.hyper_params['conditions']['threshold_valid_best_score']:
             LOGGER.info('[BREAK] achieve best score %f', best_score)
             return True
 
@@ -479,22 +384,22 @@ class LogicModel(Model):
         return False
 
     def terminate_train_loop_condition(self, remaining_time_budget=None, inner_epoch=0):
-        best_idx = np.argmax(np.array([c['valid']['score'] for c in self.checkpoints]))
-        best_score = self.checkpoints[best_idx]['valid']['score']
-        if best_score > 0.995:
-            LOGGER.info('[TERMINATE] achieve best score %f', best_score)
-            self.info['terminate'] = True
-            self.done_training = True
-            return True
-
         early_term_budget = 3 * 60
         expected_more_time = (self.timers['test'].step_time + (self.timers['train'].step_time * 2)) * 1.5
         if remaining_time_budget is not None and \
             remaining_time_budget - early_term_budget < expected_more_time:
-            LOGGER.info('[TERMINATE] not enough time to train (remain:%f need:%f)', remaining_time_budget,
-                        expected_more_time)
+            LOGGER.info('[TERMINATE] not enough time to train (remain:%f need:%f)', remaining_time_budget, expected_more_time)
             self.info['terminate'] = True
             self.done_training = True
+            return True
+
+        best_idx = np.argmax(np.array([c['valid']['score'] for c in self.checkpoints]))
+        best_score = self.checkpoints[best_idx]['valid']['score']
+        if best_score > self.hyper_params['conditions']['threshold_valid_best_score']:
+            LOGGER.info('[TERMINATE] achieve best score %f', best_score)
+            done = True if self.info['terminate'] else False
+            self.info['terminate'] = True
+            self.done_training = done if self.is_video() else True
             return True
 
         scores = [c['valid']['score'] for c in self.checkpoints]
@@ -556,15 +461,15 @@ class LogicModel(Model):
                 self.timers['train']('valid_dataset', exclude_step=is_first)
 
                 valid_metrics = self.epoch_valid(self.info['loop']['epoch'], valid_dataloader)
-                is_skip_valid = False
+                self.is_skip_valid = False
             else:
                 valid_metrics = self.skip_valid(self.info['loop']['epoch'])
-                is_skip_valid = True
+                self.is_skip_valid = True
             self.timers['train']('valid')
 
             metrics = {
                 'epoch': self.info['loop']['epoch'],
-                'model': self.get_model_state(),
+                'model': self.model.state_dict().copy(),
                 'train': train_metrics,
                 'valid': valid_metrics,
             }
@@ -573,7 +478,7 @@ class LogicModel(Model):
             self.timers['train']('adapt', exclude_step=True)
 
             LOGGER.info(
-                '[train] [%02d] time(budge:%.2f, total:%.2f, step:%.2f) loss:(train:%.3f valid:%.3f) score:(train:%.3f valid:%.3f) lr:%f',
+                '[train] [%02d] time(budge:%.2f, total:%.2f, step:%.2f) loss:(train:%.3f, valid:%.3f) score:(train:%.3f valid:%.3f) lr:%f',
                 self.info['loop']['epoch'], remaining_time_budget, self.get_total_time(), self.timers['train'].step_time,
                 metrics['train']['loss'], metrics['valid']['loss'], metrics['train']['score'], metrics['valid']['score'],
                 self.optimizer.get_learning_rate()
@@ -607,7 +512,7 @@ class LogicModel(Model):
 
         self.timers['train']('outer_end')
         LOGGER.info(
-            '[train] [%02d] time(budge:%.2f, total:%.2f, step:%.2f) loss:(train:%.3f valid:%.3f) score:(train:%.3f valid:%.3f) lr:%f',
+            '[train] [%02d] time(budge:%.2f, total:%.2f, step:%.2f) loss:(train:%.3f, valid:%.3f) score:(train:%.3f valid:%.3f) lr:%f',
             self.info['loop']['epoch'], remaining_time_budget, self.get_total_time(), self.timers['train'].step_time,
             metrics['train']['loss'], metrics['valid']['loss'], metrics['train']['score'], metrics['valid']['score'],
             self.optimizer.get_learning_rate()

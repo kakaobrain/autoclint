@@ -43,6 +43,8 @@ class TFDataset(Dataset):
 
     def scan(self, samples=1000000, with_tensors=False, is_batch=False, device=None, half=False):
         shapes, counts, tensors = [], [], []
+        labels = []
+        min_list, max_list = [], []
         for i in range(min(self.num_samples, samples)):
             try:
                 example, label = self.__getitem__(i)
@@ -53,9 +55,14 @@ class TFDataset(Dataset):
 
             shape = example.shape
             count = np.sum(label, axis=None if not is_batch else -1)
+            labels.append(label)
+            # index = np.argmax(label, axis=None if not is_batch else -1)
 
             shapes.append(shape)
             counts.append(count)
+            min_list.append(np.min(example))
+            max_list.append(np.max(example))
+
             if with_tensors:
                 example = torch.Tensor(example)
                 label = torch.Tensor(label)
@@ -73,18 +80,32 @@ class TFDataset(Dataset):
         shapes = np.array(shapes)
         counts = np.array(counts) if not is_batch else np.concatenate(counts)
 
+        labels = np.array(labels) if not is_batch else np.concatenate(labels)
+        labels = np.sum(labels, axis=0)
+        zero_count = sum(labels == 0)
+
         info = {
             'count': len(counts),
             'is_multiclass': counts.max() > 1.0,
+            'is_video': int(np.median(shapes, axis=0)[0]) > 1,
             'example': {
-                'shape': [int(v) for v in np.median(shapes, axis=0)],  # 1, width, height, channels
+                'shape': [int(v) for v in np.median(shapes, axis=0)],  # time, channels, height, width
+                'shape_avg': [int(v) for v in np.average(shapes, axis=0)],  # time, channels, height, width
+                'value': {'min': min(min_list), 'max': max(max_list)}
             },
             'label': {
                 'min': counts.min(),
                 'max': counts.max(),
                 'average': counts.mean(),
                 'median': np.median(counts),
-            }
+                'zero_count': zero_count,
+            },
+            # 'indexs': {
+            #     'min': indexs.min(),
+            #     'max': indexs.max(),
+            #     'average': indexs.mean(),
+            #     'median': np.median(indexs),
+            # }
         }
 
         if with_tensors:

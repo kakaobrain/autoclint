@@ -12,6 +12,11 @@ import torch
 LOGGER = logging.getLogger(__name__)
 
 
+class Identity:
+    def __call__(self, image):
+        return image
+
+
 class Normalize:
     def __init__(self, mean, std):
         self.mean = mean
@@ -25,13 +30,13 @@ class Normalize:
 
 
 class RandomFlip:
-    def __init__(self, p=0.5, dim=[-1]):
+    def __init__(self, p=0.5, dims=[-1]):
         self.p = p
-        self.dim = dim
+        self.dims = dims
 
     def __call__(self, tensor):
         if random.random() < self.p:
-            tensor = torch.flip(tensor, dims=self.dim)
+            tensor = torch.flip(tensor, dims=self.dims)
         return tensor
 
     def __repr__(self):
@@ -56,6 +61,7 @@ class Cutout:
     def __init__(self, height, width):
         self.height = height
         self.width = width
+        LOGGER.debug('[%s] height:%d, width:%d', self.__class__.__name__, self.height, self.width)
 
     def __call__(self, image):
         if self.height > 0 or self.width > 0:

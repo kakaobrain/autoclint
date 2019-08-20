@@ -55,6 +55,34 @@ class Normalize(torch.nn.Module):
         return x
 
 
+class Reshape(torch.nn.Module):
+    def __init__(self, *shape):
+        super(Reshape, self).__init__()
+        self.shape = shape
+
+    def forward(self, x):
+        return x.view(*self.shape)
+
+
+class Flatten(torch.nn.Module):
+    def __init__(self):
+        super(Flatten, self).__init__()
+
+    def forward(self, x):
+        batch = x.shape[0]
+        return x.view([batch, -1])
+
+
+class SplitTime(torch.nn.Module):
+    def __init__(self, times):
+        super(SplitTime, self).__init__()
+        self.times = times
+
+    def forward(self, x):
+        batch, channels, height, width = x.shape
+        return x.view(-1, self.times, channels, height, width)
+
+
 class Permute(torch.nn.Module):
     def __init__(self, *dims):
         super(Permute, self).__init__()
@@ -129,6 +157,15 @@ class MergeSum(torch.nn.Module):
     @decorator_tuple_to_args
     def forward(self, *xs):
         return torch.sum(torch.stack(xs), dim=0)
+
+
+class MergeProd(torch.nn.Module):
+    @decorator_tuple_to_args
+    def forward(self, *xs):
+        # xs = list(xs)
+        # s = xs[0].shape
+        # xs[0] = xs[0].view(s[0], 1, s[1])
+        return xs[0] * xs[1]
 
 
 class Choice(torch.nn.Module):

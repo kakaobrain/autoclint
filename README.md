@@ -10,12 +10,14 @@
 
 A specially designed light version of **[Fast AutoAugment][]** is implemented to adapt to **various tasks** under **limited resources**.
 
-This is our solution to [NeurIPS 2019 AutoDL Challenges][]. We rank the [AutoCV Challenge][] **1st place** in the final leaderboard.
+This is our solution to [NeurIPS 2019 AutoDL Challenges][].
+We rank the [AutoCV][] Challenge **1st place** in the final leaderboard.
 
 
-## [AutoCV Challenge][] Introduction
-#### Fully Automated Image Classification without ANY human intervention
-> Despite recent successes of deep learning and other machine learning techniques, practical experience and expertise is still required to select models and/or choose hyper-parameters when applying techniques to new datasets. This problem is drawing increasing interest, yielding progress towards fully automated solutions. In this challenge your machine learning code is trained and tested on this platform, without human intervention whatsoever, on image classification tasks you have never seen before, with time and memory limitations. All problems are multi-label classification problems, coming from various domains including medical imaging, satellite imaging, object recognition, character recognition, face recognition, etc. They lend themselves to deep learning solutions, but other methods may be used. Raw data is provided, but formatted in a uniform manner, to encourage you to submit generic algorithms.
+
+## [AutoCV][]/[AutoCV2][] Challenge Introduction
+#### Fully Automated Image (and Video) Classification without ANY human intervention
+> Despite recent successes of deep learning and other machine learning techniques, practical experience and expertise is still required to select models and/or choose hyper-parameters when applying techniques to new datasets. This problem is drawing increasing interest, yielding progress towards fully automated solutions. In this challenge your machine learning code is trained and tested on this platform, without human intervention whatsoever, on image or video classification tasks you have never seen before, with time and memory limitations. All problems are multi-label classification problems, coming from various domains including medical imaging, satellite imaging, object recognition, character recognition, face recognition, etc. They lend themselves to deep learning solutions, but other methods may be used. Raw data is provided, but formatted in a uniform manner, to encourage you to submit generic algorithms.
 
 
 ## Methods
@@ -24,17 +26,18 @@ We employ a network transfer strategy and implement a light version of [Fast Aut
 
 ### Network Transfer
 
-The [AutoCV Challenge][]s are given limited memory and computational resources. Thus, we considered a small size of architecture that could use the pre-trained models that were transferred.
+The [AutoCV][] Challenges are given limited memory and computational resources. Thus, we considered a small size of architecture that could use the pre-trained models that were transferred.
 
 We have discovered the optimal hyperparameters and architectures to get the best performance in five minutes from five public data sets (Munster, Chuckey, Pedro, Decal and Hammer). In this process, no data augmentation is used.
 
 Due to the variability in image size (median shape 28x28x1 for munster vs. 576x944x3 for decal) the input tensor size of network must be automatically adapted for each dataset to allow for adequate aggregation of spatial information and to keep the aspect ratio of original image.
 We automatically adapt these parameters to the median size of each dataset, so that the network effectively trains on entire datasets. Due to time constraints, we do not increase the input tensor volume (without channels) beyond 64^2. If the median shape of the dataset is smaller than 64^2 then we use the median shape as original input.
 
-|    | Munster |  Chucky |   Pedro |   Decal |  Hammer |
-|:---|:-------:|:-------:|:-------:|:-------:|:-------:|
-| <sub>original median shape<sub> | 28x28x1 | 32x32x1 | 203x74x3 | 576x944x3 | 300x400x3 |
-| <sub>input tensor shape<sub> | 28x28x1 | 32x32x1 | 128x48x3 | 48x64x3 | 48x64x3 |
+|    | Munster |  Chucky |   Pedro |   Decal |  Hammer | Kreatur | Katze | Kraut | 
+|:---|:-------:|:-------:|:-------:|:-------:|:-------:|:-------:|:-----:|:-----:|
+| <sub>data type</sub> | image | image | image | image | image | video | video | video |
+| <sub>original median shape</sub> | 28x28x1 | 32x32x1 | 203x74x3 | 576x944x3 | 300x400x3 | 46x60x80x3 | 46x120x160x1 | 46x120x160x1 |
+| <sub>input tensor shape</sub> | 28x28x1 | 32x32x1 | 128x48x3 | 48x64x3 | 48x64x3 | 8x48x64x3 | 8x48x64x1 | 8x48x64x1 |
 
 ### [Fast AutoAugment][]
 
@@ -45,7 +48,7 @@ We modify the search space and implement a light version of Fast AutoAugment alg
 As Fast AutoAugment, we search the augmentation policies that match the density of train data with density of augmented valid data. We deviate from the original version in that we replace 5-fold with single-fold search and use random search (within subset of searched policy in original) instead of TPE algorithm.
 
 
-## Results
+## [AutoCV][] Results
 ### Public
 
 #### V1.XLARGE
@@ -76,6 +79,37 @@ As Fast AutoAugment, we search the augmentation policies that match the density 
 | curves  | ![](./assets/private_final_result_beatriz.png) | ![](./assets/private_final_result_Caucase.png) | ![](./assets/private_final_result_Hippocrate.png) | ![](./assets/private_final_result_Saturn.png) | ![](./assets/private_final_result_ukulele.png) |
 
 
+## [AutoCV2][] Results
+### Public (video only)
+
+#### V1.XLARGE
+* experiment environment: [BrainCloud][] V1.XLARGE Type (V100 1GPU, 14CPU, 122GB)
+
+| metrics | Kreature | Katze | Kraut |
+|:-------:|---------:|------:|------:|
+| ALC     | 0.8677 | 0.8613 | 0.6678 |
+| <sub>2*AUC-1</sub> | 0.9613 | 0.9588 | 0.7365  |
+| curves  | ![](./assets/public_final_result_v1_kreature.png) | ![](./assets/public_final_result_v1_katze.png) | ![](./assets/public_final_result_v1_kraut.png) |
+
+#### P1.XLARGE
+* experiment environment: [BrainCloud][] P1.XLARGE Type (P40 1GPU, 6CPU, 61GB)
+
+| metrics | Kreature | Katze | Kraut |
+|:-------:|---------:|------:|------:|
+| ALC     | 0.8675 | 0.8757 | 0.6883 |
+| <sub>2*AUC-1</sub> | 0.9587 | 0.9572 | 0.7559 |
+| curves  | ![](./assets/public_final_result_p1_kreature.png) | ![](./assets/public_final_result_p1_katze.png) | ![](./assets/public_final_result_p1_kraut.png) |
+
+### Private
+* experiment environment: [CodaLab](https://autodl.lri.fr/) (UNKNOWN)
+
+| metrics | Ideal | freddy | Homer | Isaac2 | Formula |
+|:-------:|------:|-------:|------:|-------:|--------:|
+| ALC     | 0.8229 | 0.7516 | 0.3843 | 0.7064 | 0.7661 |
+| <sub>2*AUC-1</sub> | 0.9605 | 0.9945 | 0.5500 | 0.9845 | 0.9661 |
+| curves  | ![](./assets/private_final_result_ideal.png) | ![](./assets/private_final_result_freddy.png) | ![](./assets/private_final_result_homer.png) | ![](./assets/private_final_result_isaac2.png) | ![](./assets/private_final_result_formula.png) |
+
+
 ## Environment Setup & Experiments
 * base docker environment: https://hub.docker.com/r/evariste/autodl
 
@@ -99,11 +133,16 @@ $ cd autodl && python download_public_datasets.py && cd ..
 
 * run public datasets
 ```bash
+$ # images
 $ python autodl/run_local_test.py -time_budget=1200 -code_dir='./' -dataset_dir='autodl/AutoDL_public_data/Munster/'; cp autodl/AutoDL_scoring_output/learning-curve-*.png ./results
 $ python autodl/run_local_test.py -time_budget=1200 -code_dir='./' -dataset_dir='autodl/AutoDL_public_data/Chucky/'; cp autodl/AutoDL_scoring_output/learning-curve-*.png ./results
 $ python autodl/run_local_test.py -time_budget=1200 -code_dir='./' -dataset_dir='autodl/AutoDL_public_data/Pedro/'; cp autodl/AutoDL_scoring_output/learning-curve-*.png ./results
 $ python autodl/run_local_test.py -time_budget=1200 -code_dir='./' -dataset_dir='autodl/AutoDL_public_data/Decal/'; cp autodl/AutoDL_scoring_output/learning-curve-*.png ./results
 $ python autodl/run_local_test.py -time_budget=1200 -code_dir='./' -dataset_dir='autodl/AutoDL_public_data/Hammer/'; cp autodl/AutoDL_scoring_output/learning-curve-*.png ./results
+$ # videos
+$ python autodl/run_local_test.py -time_budget=1200 -code_dir='./' -dataset_dir='autodl/AutoDL_public_data/Kreatur/'; cp autodl/AutoDL_scoring_output/learning-curve-*.png ./results
+$ python autodl/run_local_test.py -time_budget=1200 -code_dir='./' -dataset_dir='autodl/AutoDL_public_data/Katze/'; cp autodl/AutoDL_scoring_output/learning-curve-*.png ./results
+$ python autodl/run_local_test.py -time_budget=1200 -code_dir='./' -dataset_dir='autodl/AutoDL_public_data/Kraut/'; cp autodl/AutoDL_scoring_output/learning-curve-*.png ./results
 ```
 
 * (optional) display learning curve
@@ -152,5 +191,6 @@ If you apply this library to any project and research, please cite our code:
 [Ildoo Kim]: https://github.com/ildoonet
 [Woonhyuk Baek]: https://github.com/wbaek
 [Fast AutoAugment]: https://arxiv.org/abs/1905.00397
-[AutoCV Challenge]: https://autodl.lri.fr/competitions/118#home
+[AutoCV]: https://autodl.lri.fr/competitions/118#home
+[AutoCV2]: https://autodl.lri.fr/competitions/3#home
 [NeurIPS 2019 AutoDL Challenges]: https://autodl.chalearn.org/
