@@ -2,7 +2,8 @@
 [![KakaoBrain](https://img.shields.io/badge/kakao-brain-ffcd00.svg)](http://kakaobrain.com/)
 [![pytorch](https://img.shields.io/badge/pytorch-1.0.1-%23ee4c2c.svg)](https://pytorch.org/)
 [![tensorflow](https://img.shields.io/badge/tensorflow-1.13.1-ed6c20.svg)](https://www.tensorflow.org/)
-[![autocv 1st place](https://img.shields.io/badge/autocv-1st_place-%235339D3.svg)](https://autodl.lri.fr/competitions/118#results)
+[![autocv 1st place](https://img.shields.io/badge/autocv-1st_place-%235339D3.svg)](#)
+[![autocv2 1st place](https://img.shields.io/badge/autocv2-1st_place-%235339D3.svg)](#)
 [![HitCount](http://hits.dwyl.io/kakaobrain/autoclint.svg)](http://hits.dwyl.io/kakaobrain/autoclint)
 
 
@@ -11,13 +12,12 @@
 A specially designed light version of **[Fast AutoAugment][]** is implemented to adapt to **various tasks** under **limited resources**.
 
 This is our solution to [NeurIPS 2019 AutoDL Challenges][].
-We rank the [AutoCV][] Challenge **1st place** in the final leaderboard.
-
+We won the **1st place** in the final learderboards in both [AutoCV][] and [AutoCV2][] Challenges.
 
 
 ## [AutoCV][]/[AutoCV2][] Challenge Introduction
 #### Fully Automated Image (and Video) Classification without ANY human intervention
-> Despite recent successes of deep learning and other machine learning techniques, practical experience and expertise is still required to select models and/or choose hyper-parameters when applying techniques to new datasets. This problem is drawing increasing interest, yielding progress towards fully automated solutions. In this challenge your machine learning code is trained and tested on this platform, without human intervention whatsoever, on image or video classification tasks you have never seen before, with time and memory limitations. All problems are multi-label classification problems, coming from various domains including medical imaging, satellite imaging, object recognition, character recognition, face recognition, etc. They lend themselves to deep learning solutions, but other methods may be used. Raw data is provided, but formatted in a uniform manner, to encourage you to submit generic algorithms.
+> Despite recent successes of deep learning and other machine learning techniques, practical experience and expertise is still required to select models and/or choose hyper-parameters when applying techniques to new datasets. This problem is drawing githincreasing interest, yielding progress towards fully automated solutions. In this challenge your machine learning code is trained and tested on this platform, without human intervention whatsoever, on image or video classification tasks you have never seen before, with time and memory limitations. All problems are multi-label classification problems, coming from various domains including medical imaging, satellite imaging, object recognition, character recognition, face recognition, etc. They lend themselves to deep learning solutions, but other methods may be used. Raw data is provided, but formatted in a uniform manner, to encourage you to submit generic algorithms.
 
 
 ## Methods
@@ -52,7 +52,7 @@ As Fast AutoAugment, we search the augmentation policies that match the density 
 ### Public
 
 #### V1.XLARGE
-* experiment environment: [BrainCloud][] V1.XLARGE Type (V100 1GPU, 14CPU, 122GB)
+* experiment environment: [BrainCloud][] V1.XLARGE Type (NVIDIA Tesla V100 1GPU, 14CPU, 122GB)
 
 | metrics | Munster |  Chucky |   Pedro |   Decal |  Hammer |
 |:-------:|--------:|--------:|--------:|--------:|--------:|
@@ -61,7 +61,7 @@ As Fast AutoAugment, we search the augmentation policies that match the density 
 | curves  | ![](./assets/public_final_result_v1_munster.png) | ![](./assets/public_final_result_v1_Chuckey.png) | ![](./assets/public_final_result_v1_pedro.png) | ![](./assets/public_final_result_v1_Decal.png) | ![](./assets/public_final_result_v1_Hammer.png) |
 
 #### P1.XLARGE
-* experiment environment: [BrainCloud][] P1.XLARGE Type (P40 1GPU, 6CPU, 61GB)
+* experiment environment: [BrainCloud][] P1.XLARGE Type (NVIDIA Tesla P40 1GPU, 6CPU, 61GB)
 
 | metrics | Munster |  Chucky |   Pedro |   Decal |  Hammer |
 |:-------:|--------:|--------:|--------:|--------:|--------:|
@@ -70,7 +70,7 @@ As Fast AutoAugment, we search the augmentation policies that match the density 
 | curves  | ![](./assets/public_final_result_p1_munster.png) | ![](./assets/public_final_result_p1_Chuckey.png) | ![](./assets/public_final_result_p1_pedro.png) | ![](./assets/public_final_result_p1_Decal.png) | ![](./assets/public_final_result_p1_Hammer.png) |
 
 ### Private
-* experiment environment: [CodaLab](https://autodl.lri.fr/) (UNKNOWN)
+* experiment environment: [CodaLab](https://autodl.lri.fr/) (NVIDIA Tesla P100 1GPU, 4vCPU, 26GB)
 
 | metrics | beatriz | Caucase | Hippoc. |  Saturn | ukulele |
 |:-------:|--------:|--------:|--------:|--------:|--------:|
@@ -83,7 +83,7 @@ As Fast AutoAugment, we search the augmentation policies that match the density 
 ### Public (video only)
 
 #### V1.XLARGE
-* experiment environment: [BrainCloud][] V1.XLARGE Type (V100 1GPU, 14CPU, 122GB)
+* experiment environment: [BrainCloud][] V1.XLARGE Type (NVIDIA Tesla V100 1GPU, 14CPU, 122GB)
 
 | metrics | Kreature | Katze | Kraut |
 |:-------:|---------:|------:|------:|
@@ -92,7 +92,7 @@ As Fast AutoAugment, we search the augmentation policies that match the density 
 | curves  | ![](./assets/public_final_result_v1_kreature.png) | ![](./assets/public_final_result_v1_katze.png) | ![](./assets/public_final_result_v1_kraut.png) |
 
 #### P1.XLARGE
-* experiment environment: [BrainCloud][] P1.XLARGE Type (P40 1GPU, 6CPU, 61GB)
+* experiment environment: [BrainCloud][] P1.XLARGE Type (NVIDIA Tesla P40 1GPU, 6CPU, 61GB)
 
 | metrics | Kreature | Katze | Kraut |
 |:-------:|---------:|------:|------:|
@@ -101,13 +101,23 @@ As Fast AutoAugment, we search the augmentation policies that match the density 
 | curves  | ![](./assets/public_final_result_p1_kreature.png) | ![](./assets/public_final_result_p1_katze.png) | ![](./assets/public_final_result_p1_kraut.png) |
 
 ### Private
-* experiment environment: [CodaLab](https://autodl.lri.fr/) (UNKNOWN)
+* experiment environment: [CodaLab](https://autodl.lri.fr/) (NVIDIA Tesla P100 1GPU, 4vCPU, 26GB)
 
 | metrics | Ideal | freddy | Homer | Isaac2 | Formula |
 |:-------:|------:|-------:|------:|-------:|--------:|
 | ALC     | 0.8229 | 0.7516 | 0.3843 | 0.7064 | 0.7661 |
 | <sub>2*AUC-1</sub> | 0.9605 | 0.9945 | 0.5500 | 0.9845 | 0.9661 |
 | curves  | ![](./assets/private_final_result_ideal.png) | ![](./assets/private_final_result_freddy.png) | ![](./assets/private_final_result_homer.png) | ![](./assets/private_final_result_isaac2.png) | ![](./assets/private_final_result_formula.png) |
+
+
+### Final (blind)
+* experiment environment: [CodaLab](https://autodl.lri.fr/) (NVIDIA Tesla P100 1GPU, 4vCPU, 26GB)
+
+| metrics | Apollon | loukooum | Fiona | Monica1 | Kitsune |
+|:-------:|------:|-------:|------:|-------:|--------:|
+| ALC     | 0.5593 | 0.9256 | 0.4074 | 0.4491 | 0.2132 |
+| <sub>2*AUC-1</sub> | 0.9978 | 0.5312 | 0.8617 | 0.9845 | 0.2467 |
+| curves  | ![](./assets/blind_final_result_apollon.png) | ![](./assets/blind_final_result_loukoum.png) | ![](./assets/blind_final_result_fiona.png) | ![](./assets/blind_final_result_monica1.png) | ![](./assets/blind_final_result_kitsune.png) |
 
 
 ## Environment Setup & Experiments
