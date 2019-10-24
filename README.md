@@ -56,8 +56,8 @@ As Fast AutoAugment, we search the augmentation policies that match the density 
 
 | metrics | Munster |  Chucky |   Pedro |   Decal |  Hammer |
 |:-------:|--------:|--------:|--------:|--------:|--------:|
-| ALC     |  0.9818 |  0.8633 |  0.8300 |  0.8935 |  0.8764 |
-| <sub>2*AUC-1</sub> |  0.9976 |  0.9292 |  0.9147 |  0.9247 |  0.9106 |
+| ALC     |  0.9421 |  0.8082 |  0.7948 |  0.8647 |  0.8147 |
+| <sub>2*AUC-1</sub> |  0.9992 |  0.9297 |  0.9241 |  0.9233 |  0.8863 |
 | curves  | ![](./assets/public_final_result_v1_munster.png) | ![](./assets/public_final_result_v1_Chuckey.png) | ![](./assets/public_final_result_v1_pedro.png) | ![](./assets/public_final_result_v1_Decal.png) | ![](./assets/public_final_result_v1_Hammer.png) |
 
 #### P1.XLARGE
