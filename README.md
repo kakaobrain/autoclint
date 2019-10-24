@@ -116,7 +116,7 @@ As Fast AutoAugment, we search the augmentation policies that match the density 
 | metrics | Apollon | loukooum | Fiona | Monica1 | Kitsune |
 |:-------:|------:|-------:|------:|-------:|--------:|
 | ALC     | 0.5593 | 0.9256 | 0.4074 | 0.4491 | 0.2132 |
-| <sub>2*AUC-1</sub> | 0.9978 | 0.5312 | 0.8617 | 0.9845 | 0.2467 |
+| <sub>2*AUC-1</sub> | 0.8022 | 0.9978 | 0.5312 | 0.8617 | 0.2467 |
 | curves  | ![](./assets/blind_final_result_apollon.png) | ![](./assets/blind_final_result_loukoum.png) | ![](./assets/blind_final_result_fiona.png) | ![](./assets/blind_final_result_monica1.png) | ![](./assets/blind_final_result_kitsune.png) |
 
 
