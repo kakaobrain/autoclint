@@ -173,11 +173,12 @@ This project is developed by [Woonhyuk Baek][], [Ildoo Kim][] and [Sungbin Lim][
 If you apply this library to any project and research, please cite our code:
 
 ```
-@misc{autoclint,
-  author       = {Kakao Brain},
-  title        = {{AutoCLINT}, Automatic Computationally LIght Network Transfer},
-  howpublished = {\url{https://github.com/kakaobrain/autoclint}},
-  year         = {2019}
+@article{baek2020autoclint,
+  title         = {AutoCLINT: The Winning Method in AutoCV Challenge 2019}
+  author        = {Woonhyuk Baek and Ildoo Kim and Sungwoong Kim and Sungbin Lim},
+  year          = {2020},
+  eprint        = {2005.04373},
+  archivePrefix = {arXiv}
 }
 ```
 
